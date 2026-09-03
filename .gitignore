@@ -1,0 +1,28 @@
+litellm_config.yaml
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Linux
+*~
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*.tmp
+
+# Claude Code local settings
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+
+# Design folder
+design/
