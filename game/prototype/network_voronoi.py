@@ -10,13 +10,21 @@ nearest source and the distance to it, then visualizes the result with
 matplotlib: node color encodes distance to the nearest source, and a
 colorbar legend shows the distance scale.
 
-Run directly to see three examples: a grid network, a random network
-(Erdos-Renyi), and a small-world network (Watts-Strogatz).
+It also computes each cell's shortest-path flow: for every node in a cell,
+the shortest path to the cell's source is found, and every edge along such
+a path counts one. Counts are stored as the edge attribute ``flow`` and
+drawn as a tint of the source's color (plus an edge-width scale), so trunk
+edges carrying many paths stand out against lightly used branches.
+
+Run directly to see the four example networks drawn with their per-cell
+shortest-path flow: a grid network, a random network (Erdos-Renyi), a
+small-world network (Watts-Strogatz), and a dendritic planar network (tree).
 """
 
 import random
 
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import networkx as nx
 
 
@@ -141,6 +149,178 @@ def draw_network_voronoi(G, sources, pos=None, weight="weight", ax=None,
     return ax
 
 
+def voronoi_edge_flow(G, sources, source_of=None, weight="weight",
+                      flow="flow"):
+    """Count how many node-to-source shortest paths land on each edge.
+
+    For every Voronoi cell (a source plus the nodes assigned to it), each
+    node's shortest path to the cell's source is computed inside the cell
+    subgraph, and every edge along the path accumulates one count. The
+    count is stored as the edge's ``flow`` attribute, so trunk edges near
+    the source end up with large counts and leaf edges with 1.
+
+    Without distance ties, a node's shortest path to its nearest source
+    never leaves its cell, so the per-cell computation matches the global
+    shortest path. With ties a cell can be pinched off; the path then falls
+    back to the full graph.
+
+    Args:
+        G: networkx graph (undirected or directed; simple, not Multi).
+        sources: iterable of source node ids.
+        source_of: the Voronoi partition (node -> nearest source) as
+            returned by ``network_voronoi``; recomputed if omitted.
+        weight: edge attribute used as distance weight for shortest paths.
+        flow: name of the edge attribute to store the count in.
+
+    Returns:
+        flow_of: dict mapping every edge (u, v) of G to the number of
+            node-to-source shortest paths that use it.
+    """
+    sources = list(sources)
+    if source_of is None:
+        _, source_of = network_voronoi(G, sources, weight=weight)
+
+    cells = {s: [] for s in sources}
+    for node, s in source_of.items():
+        cells[s].append(node)
+
+    nx.set_edge_attributes(G, 0, flow)
+    for s, members in cells.items():
+        cell = G.subgraph(members)
+        for v in members:
+            if v == s:
+                continue
+            try:
+                path = nx.shortest_path(cell, v, s, weight=weight)
+            except nx.NetworkXNoPath:  # pinched off by a distance tie
+                path = nx.shortest_path(G, v, s, weight=weight)
+            for a, b in zip(path, path[1:]):
+                G[a][b][flow] += 1
+    return nx.get_edge_attributes(G, flow)
+
+
+def _tint(color, t):
+    """Blend a color toward white: t=0 gives white, t=1 gives the color."""
+    r, g, b = color[:3]
+    return ((1 - t) + t * r, (1 - t) + t * g, (1 - t) + t * b)
+
+
+def draw_voronoi_edge_flow(G, sources, pos=None, weight="weight", flow="flow",
+                           ax=None, title=None, seed=42):
+    """Draw the shortest-path flow map of a network Voronoi diagram.
+
+    Each interior edge is drawn tinted with its cell's source color: the
+    deeper the tint (and the wider the edge), the more node-to-source
+    shortest paths land on it. Tint is normalized per cell, so every cell's
+    busiest edge carries the full source color. Boundary edges between
+    cells are drawn faint gray, regular nodes take a light tint of their
+    cell color, and sources are drawn as stars in their full cell color.
+
+    Args:
+        G: networkx graph.
+        sources: iterable of source node ids.
+        pos: node layout dict (node -> (x, y)); computed with a spring
+            layout if omitted.
+        weight: edge attribute used as distance weight.
+        flow: edge attribute holding the shortest-path counts (set by
+            ``voronoi_edge_flow``).
+        ax: matplotlib Axes to draw on; created if omitted.
+        title: optional plot title.
+        seed: layout seed (used only when pos is None).
+
+    Returns:
+        The matplotlib Axes.
+    """
+    sources = list(sources)
+    _, source_of = network_voronoi(G, sources, weight=weight)
+    flow_of = voronoi_edge_flow(G, sources, source_of=source_of,
+                                weight=weight, flow=flow)
+
+    if pos is None:
+        # k raises the ideal spring length so nodes spread further apart.
+        pos = nx.spring_layout(G, seed=seed, k=2.5 / (G.number_of_nodes() ** 0.5))
+    if ax is None:
+        _, ax = plt.subplots()
+
+    source_set = set(sources)
+    region_cmap = plt.get_cmap("tab10")
+    region_color = {s: region_cmap(i % 10) for i, s in enumerate(sources)}
+
+    # Same interior/boundary split as draw_network_voronoi: an edge belongs
+    # to a cell when both endpoints are in it.
+    interior = [e for e in G.edges
+                if e[0] in source_of and e[1] in source_of
+                and source_of[e[0]] == source_of[e[1]]]
+    boundary = [e for e in G.edges if e not in set(interior)]
+
+    # Per-cell busiest edge, for normalizing each cell's tint scale.
+    cell_max = {s: 0 for s in sources}
+    for e in interior:
+        s = source_of[e[0]]
+        cell_max[s] = max(cell_max[s], flow_of.get(e, 0))
+
+    edge_color, edge_width = [], []
+    for e in interior:
+        s = source_of[e[0]]
+        t = flow_of.get(e, 0) / cell_max[s] if cell_max[s] else 0.0
+        # Floor tint so zero-flow interior edges stay faintly visible.
+        edge_color.append(_tint(region_color[s], 0.1 + 0.9 * t))
+        edge_width.append(0.8 + 3.2 * t)
+    nx.draw_networkx_edges(G, pos, edgelist=interior,
+                           edge_color=edge_color, width=edge_width, ax=ax)
+    nx.draw_networkx_edges(G, pos, edgelist=boundary,
+                           edge_color="gray", width=1.0, alpha=0.3, ax=ax)
+
+    # Regular nodes: a light tint of their cell color; nodes unreachable
+    # from every source (disconnected components) are drawn in light gray.
+    regular = [n for n in G.nodes if n not in source_set]
+    reachable = [n for n in regular if n in source_of]
+    unreachable = [n for n in regular if n not in source_of]
+    nx.draw_networkx_nodes(
+        G, pos, nodelist=reachable,
+        node_color=[_tint(region_color[source_of[n]], 0.3) for n in reachable],
+        node_size=60, edgecolors="gray", linewidths=0.5, ax=ax,
+    )
+    if unreachable:
+        nx.draw_networkx_nodes(
+            G, pos, nodelist=unreachable,
+            node_color="lightgray", node_size=60, ax=ax,
+        )
+
+    # Source nodes: drawn on top as larger stars in their region color.
+    nx.draw_networkx_nodes(
+        G, pos, nodelist=sources,
+        node_color=[region_color[s] for s in sources],
+        node_shape="*", node_size=350,
+        edgecolors="black", linewidths=1.0, ax=ax,
+    )
+
+    # Legend: one proxy per source showing the cell color and the top of
+    # its tint scale, plus the boundary edge style.
+    handles = [
+        Line2D([0], [0], color=region_color[s], lw=4, marker="*",
+               markersize=14, markerfacecolor=region_color[s],
+               markeredgecolor="black",
+               label=f"source {s}: up to {cell_max[s]} paths/edge")
+        for s in sources
+    ]
+    handles.append(Line2D([0], [0], color="gray", lw=1, alpha=0.3,
+                          label="boundary edge"))
+    ax.legend(handles=handles, loc="upper right", fontsize=7,
+              framealpha=0.9)
+
+    # Mark each source with its id so the tab10 colors are identifiable.
+    for s in sources:
+        ax.annotate(str(s), pos[s], textcoords="offset points",
+                    xytext=(0, 10), ha="center", fontsize=8,
+                    fontweight="bold")
+
+    if title:
+        ax.set_title(title)
+    ax.set_axis_off()
+    return ax
+
+
 def random_dendritic_tree(n, rng):
     """Random dendritic (tree-like, hence planar) graph on n nodes.
 
@@ -188,8 +368,12 @@ def dendritic_layout(G, root=0):
     return pos
 
 
-def main():
-    """Build the example networks and plot them side by side."""
+def build_examples():
+    """Build the four example networks used as test cases.
+
+    Returns a list of (title, G, sources, pos) tuples, where pos is a node
+    layout or None (draw functions then compute a spring layout).
+    """
     # Example 1: grid network, sources spread across a 10x10 lattice.
     n = 10
     G_grid = nx.grid_2d_graph(n, n)
@@ -219,17 +403,25 @@ def main():
     pos_dendritic = dendritic_layout(G_dendritic)
     sources_dendritic = rng.sample(list(G_dendritic.nodes), 4)
 
+    return [
+        (f"Grid network ({n}x{n})", G_grid, sources_grid, pos_grid),
+        ("Random network (Erdos-Renyi)", G_random, sources_random, None),
+        ("Small-world network (Watts-Strogatz)", G_small_world,
+         sources_small_world, None),
+        ("Dendritic planar network (tree)", G_dendritic,
+         sources_dendritic, pos_dendritic),
+    ]
+
+
+def main():
+    """Build the example networks and plot their shortest-path flow maps."""
+    examples = build_examples()
     fig, axes = plt.subplots(2, 2, figsize=(16, 14))
-    axes = axes.flat
-    draw_network_voronoi(G_grid, sources_grid, pos=pos_grid, ax=axes[0],
-                         title=f"Grid network ({n}x{n}), sources: {sources_grid}")
-    draw_network_voronoi(G_random, sources_random, ax=axes[1],
-                         title=f"Random network (Erdos-Renyi), sources: {sources_random}")
-    draw_network_voronoi(G_small_world, sources_small_world, ax=axes[2],
-                         title=f"Small-world network (Watts-Strogatz), sources: {sources_small_world}")
-    draw_network_voronoi(G_dendritic, sources_dendritic, pos=pos_dendritic, ax=axes[3],
-                         title=f"Dendritic planar network (tree), sources: {sources_dendritic}")
-    fig.suptitle("Network Voronoi diagrams (Multi-Source Dijkstra)", fontsize=14)
+    for ax, (title, G, sources, pos) in zip(axes.flat, examples):
+        draw_voronoi_edge_flow(G, sources, pos=pos, ax=ax, title=title)
+    fig.suptitle("Shortest-path flow to Voronoi sources (edge tint = number "
+                 "of node-to-source shortest paths using the edge, "
+                 "normalized per cell)", fontsize=14)
     fig.tight_layout()
     plt.show()
 
