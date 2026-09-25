@@ -13,7 +13,8 @@ one edge. Removed edges are drawn back in as faint red dashes so the
 dismantling history stays visible.
 
 Run directly to render one GIF animation per example network (grid,
-Erdos-Renyi, small-world, dendritic) into the ``animations/`` directory.
+Erdos-Renyi, small-world, dendritic) plus one per 15x15 grid supply-sweep
+case (2 to 10 supply nodes) into the ``animations/`` directory.
 """
 
 import os
@@ -137,14 +138,21 @@ def _slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
-def save_example_animations(out_dir="animations", interval=350, dpi=90):
-    """Render one animation per network_voronoi example and save as GIF.
+def save_example_animations(out_dir="animations", interval=350, dpi=90,
+                            examples=None):
+    """Render one animation per example network and save as GIF.
 
-    Returns the list of written file paths.
+    Covers the four ``network_voronoi.build_examples`` networks plus every
+    case of the 15x15 grid supply sweep (2 to 10 supply nodes), one GIF
+    file per case. Pass ``examples`` to render only a subset, e.g.
+    ``network_voronoi.build_grid_supply_sweep()``. Returns the list of
+    written file paths.
     """
     os.makedirs(out_dir, exist_ok=True)
     written = []
-    for title, G, sources, pos in nv.build_examples():
+    if examples is None:
+        examples = nv.build_examples() + nv.build_grid_supply_sweep()
+    for title, G, sources, pos in examples:
         anim, frames, _ = animate_edge_removal(
             G, sources, pos=pos, interval=interval, title=title)
         path = os.path.join(out_dir, f"{_slug(title)}.gif")

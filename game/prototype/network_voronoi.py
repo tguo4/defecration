@@ -22,6 +22,7 @@ small-world network (Watts-Strogatz), and a dendritic planar network (tree).
 """
 
 import random
+import numpy as np
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -413,6 +414,28 @@ def build_examples():
     ]
 
 
+def build_grid_supply_sweep(n=15, max_supplies=10, seed=5):
+    """Build a series of grid cases with a growing set of supply nodes.
+
+    All cases share the same nxn grid and the same seeded random sample of
+    ``max_supplies`` source nodes; case k uses the first k of them (k runs
+    from 2 to ``max_supplies``), so the Voronoi partition can be watched
+    evolving as supply nodes are added one at a time.
+
+    Returns a list of (title, G, sources, pos) tuples like
+    ``build_examples``; every tuple shares the same graph object and the
+    same grid-aligned layout.
+    """
+    G = nx.grid_2d_graph(n, n)
+    G = nx.convert_node_labels_to_integers(G)
+    pos = {i: (i % n, -(i // n)) for i in G.nodes}  # grid-aligned
+    pool = random.Random(seed).sample(list(G.nodes), max_supplies)
+    return [
+        (f"Grid network ({n}x{n}), {k} supply nodes", G, pool[:k], pos)
+        for k in range(2, max_supplies + 1)
+    ]
+
+
 def main():
     """Build the example networks and plot their shortest-path flow maps."""
     examples = build_examples()
@@ -423,6 +446,14 @@ def main():
                  "of node-to-source shortest paths using the edge, "
                  "normalized per cell)", fontsize=14)
     fig.tight_layout()
+
+    sweep = build_grid_supply_sweep()
+    fig2, axes2 = plt.subplots(3, 3, figsize=(18, 16))
+    for ax, (title, G, sources, pos) in zip(axes2.flat, sweep):
+        draw_voronoi_edge_flow(G, sources, pos=pos, ax=ax, title=title)
+    fig2.suptitle("15x15 grid with a growing set of supply nodes "
+                  "(2 to 10, added one at a time)", fontsize=14)
+    fig2.tight_layout()
     plt.show()
 
 
