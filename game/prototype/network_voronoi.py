@@ -307,8 +307,10 @@ def draw_voronoi_edge_flow(G, sources, pos=None, weight="weight", flow="flow",
     ]
     handles.append(Line2D([0], [0], color="gray", lw=1, alpha=0.3,
                           label="boundary edge"))
-    ax.legend(handles=handles, loc="upper right", fontsize=7,
-              framealpha=0.9)
+    # Legend sits outside the axes on the right so it never covers nodes;
+    # the enclosing figure must leave room (constrained layout does).
+    ax.legend(handles=handles, loc="center left", bbox_to_anchor=(1.02, 0.5),
+              fontsize=7, framealpha=0.9, borderaxespad=0)
 
     # Mark each source with its id so the tab10 colors are identifiable.
     for s in sources:
@@ -439,21 +441,19 @@ def build_grid_supply_sweep(n=15, max_supplies=10, seed=5):
 def main():
     """Build the example networks and plot their shortest-path flow maps."""
     examples = build_examples()
-    fig, axes = plt.subplots(2, 2, figsize=(16, 14))
+    fig, axes = plt.subplots(2, 2, figsize=(16, 14), layout="constrained")
     for ax, (title, G, sources, pos) in zip(axes.flat, examples):
         draw_voronoi_edge_flow(G, sources, pos=pos, ax=ax, title=title)
     fig.suptitle("Shortest-path flow to Voronoi sources (edge tint = number "
                  "of node-to-source shortest paths using the edge, "
                  "normalized per cell)", fontsize=14)
-    fig.tight_layout()
 
     sweep = build_grid_supply_sweep()
-    fig2, axes2 = plt.subplots(3, 3, figsize=(18, 16))
+    fig2, axes2 = plt.subplots(3, 3, figsize=(18, 16), layout="constrained")
     for ax, (title, G, sources, pos) in zip(axes2.flat, sweep):
         draw_voronoi_edge_flow(G, sources, pos=pos, ax=ax, title=title)
     fig2.suptitle("15x15 grid with a growing set of supply nodes "
                   "(2 to 10, added one at a time)", fontsize=14)
-    fig2.tight_layout()
     plt.show()
 
 

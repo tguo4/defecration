@@ -105,7 +105,9 @@ def animate_edge_removal(G, sources, pos=None, weight="weight",
         pos = nx.spring_layout(G, seed=42,
                                k=2.5 / (G.number_of_nodes() ** 0.5))
 
-    fig, ax = plt.subplots(figsize=(9, 8))
+    # Wider than tall so the per-source legend fits outside the axes on
+    # the right; constrained layout reserves the room every frame.
+    fig, ax = plt.subplots(figsize=(11, 8), layout="constrained")
     header = title or "Dynamic Voronoi"
 
     def update(i):
