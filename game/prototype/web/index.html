@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Network Resilience — Perspectives</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --panel: #ffffff;
+    --ink: #1f2933;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --accent: #2563eb;
+    --gold: #f5b301;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+    font-weight: 600; font-size: 16px;
+  }
+  header small { font-weight: 400; color: var(--muted); margin-left: 10px; }
+  main { display: flex; gap: 16px; padding: 16px; height: calc(100vh - 49px); }
+  #board-wrap { flex: 1; display: flex; align-items: center; justify-content: center; }
+  aside {
+    width: 320px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px; overflow-y: auto;
+  }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em;
+       color: var(--muted); margin: 18px 0 8px; }
+  h2:first-child { margin-top: 0; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  label { display: block; margin: 10px 0 4px; color: var(--ink); }
+  input[type=number] {
+    width: 100%; padding: 6px 8px; border: 1px solid var(--line);
+    border-radius: 6px; font-size: 14px;
+  }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .slider-val { float: right; color: var(--accent); font-variant-numeric: tabular-nums; }
+  select {
+    width: 100%; padding: 6px 8px; border: 1px solid var(--line);
+    border-radius: 6px; font-size: 14px; background: #fff;
+  }
+  button {
+    width: 100%; margin-top: 14px; padding: 9px 0; border: none; border-radius: 6px;
+    background: var(--accent); color: #fff; font-size: 14px; font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: default; }
+  button:hover:not(:disabled) { filter: brightness(1.08); }
+  #status { margin-top: 10px; color: var(--muted); min-height: 18px; font-size: 12px; }
+  #board { display: block; }
+  #board-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #legend {
+    display: flex; gap: 22px; align-items: center; margin-bottom: 8px;
+    font-size: 12px; color: var(--muted);
+  }
+  .lg-item { display: inline-flex; align-items: center; gap: 6px; }
+  .lg-line { display: inline-block; width: 22px; height: 0; border-top: 3px solid; }
+  .lg-line-color { border-color: var(--accent); }
+  .lg-line-gray { border-color: gray; opacity: .4; }
+  .legend { font-size: 12px; color: var(--muted); margin-top: 10px; }
+</style>
+</head>
+<body>
+<header>
+  Network Resilience Demo
+  <small>each demand node sees the network through its preferred supplies</small>
+</header>
+<main>
+  <div id="board-wrap">
+    <div id="legend">
+      <span class="lg-item">
+        <svg width="18" height="18"><path d="M 9 1.5 L 10.8 6.2 L 15.7 6.6 L 12 9.9 L 13.2 14.8 L 9 12.2 L 4.8 14.8 L 6 9.9 L 2.3 6.6 L 7.2 6.2 Z" fill="gold" stroke="#333" stroke-width=".8"/></svg>
+        supply node (v+)
+      </span>
+      <span class="lg-item">
+        <svg width="18" height="18"><path d="M 9 2.5 L 15 14.5 L 3 14.5 Z" fill="#1f77b4" stroke="#333" stroke-width=".8"/></svg>
+        demand node (v−)
+      </span>
+      <span class="lg-item"><span class="lg-line lg-line-color"></span>perspective path</span>
+      <span class="lg-item"><span class="lg-line lg-line-gray"></span>network edge</span>
+    </div>
+    <svg id="board"></svg>
+  </div>
+  <aside>
+    <h2>Grid</h2>
+    <div class="row">
+      <div>
+        <label>Rows (n): <span class="slider-val" id="rows-val">15</span></label>
+        <input type="range" id="rows" min="2" max="50" value="15">
+      </div>
+      <div>
+        <label>Columns (m): <span class="slider-val" id="cols-val">15</span></label>
+        <input type="range" id="cols" min="2" max="50" value="15">
+      </div>
+    </div>
+
+    <h2>Supply &amp; demand nodes</h2>
+    <label>Number of supply nodes (v+)</label>
+    <input type="number" id="n-supply" min="1" value="15">
+    <label>Number of demand nodes (v-)</label>
+    <input type="number" id="n-demand" min="1" value="4">
+    <button id="btn-sample">Generate nodes at random</button>
+
+    <h2>Preference function</h2>
+    <label>Type</label>
+    <select id="pref-type">
+      <option value="rank">Rank bound — k nearest supplies</option>
+      <option value="distance">Distance bound — all supplies within R steps</option>
+    </select>
+    <div id="rank-controls">
+      <label>Supply rank k: <span class="slider-val" id="k-val">3</span></label>
+      <input type="range" id="k" min="1" max="10" value="3">
+    </div>
+    <div id="dist-controls" style="display:none">
+      <label>Distance limit R (steps): <span class="slider-val" id="r-val">10</span></label>
+      <input type="range" id="r" min="1" max="30" value="10">
+    </div>
+
+    <button id="btn-persp" disabled>Generate perspective</button>
+    <div id="status"></div>
+    <div class="legend">
+      ★ gold star = supply node &nbsp;▲ triangle = demand node<br>
+      hover a demand node to highlight its perspective
+    </div>
+  </aside>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = ["#1f77b4","#d62728","#2ca02c","#9467bd","#ff7f0e",
+                 "#8c564b","#e377c2","#17becf","#bcbd22","#7f7f7f"];
+const PAD = 24, MAX_CELL = 26, MIN_CELL = 6;
+
+function cellSize() {
+  // Fit the whole grid into the middle panel: scale the cell down as
+  // rows/cols grow, floored so huge grids stay legible.
+  const wrap = $("board-wrap");
+  const availW = wrap.clientWidth - 2 * PAD - 2;
+  const availH = wrap.clientHeight - 2 * PAD - 2;
+  const c = Math.min(MAX_CELL,
+                     Math.floor(availW / state.cols),
+                     Math.floor(availH / state.rows));
+  return Math.max(MIN_CELL, c);
+}
+
+const svg = $("board");
+const ns = "http://www.w3.org/2000/svg";
+const state = {
+  rows: 15, cols: 15,
+  supplies: [], demands: [],
+  perspectives: null,      // list of perspective objects
+  hover: null,             // hovered demand node id "r,c"
+};
+
+function el(tag, attrs) {
+  const e = document.createElementNS(ns, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+let CELL = MAX_CELL;  // current cell size, set at the top of draw()
+
+function px(node) {
+  const [r, c] = node.split(",").map(Number);
+  return { x: PAD + c * CELL + CELL / 2, y: PAD + r * CELL + CELL / 2 };
+}
+
+async function post(url, body) {
+  const res = await fetch(url, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function setStatus(msg, err) {
+  $("status").textContent = msg || "";
+  $("status").style.color = err ? "#b91c1c" : "var(--muted)";
+}
+
+/* ---------- drawing ---------- */
+
+function draw() {
+  svg.replaceChildren();
+  CELL = cellSize();
+  const w = state.cols * CELL + 2 * PAD, h = state.rows * CELL + 2 * PAD;
+  svg.setAttribute("width", w); svg.setAttribute("height", h);
+  svg.style.maxWidth = "min(100%, " + w + "px)";
+
+  const colorOf = {};
+  state.demands.forEach((d, i) => colorOf[d] = COLORS[i % COLORS.length]);
+  // node shapes scale down with the cell so large grids stay legible
+  const S = CELL / 26;
+  const starR = 9 * S, starR2 = 3.8 * S, triH = 8 * S, triW = 6 * S;
+
+  // faint full grid edges
+  const base = el("g", {stroke: "gray", "stroke-width": Math.max(.5, S), opacity: .18});
+  for (let r = 0; r < state.rows; r++) for (let c = 0; c < state.cols; c++) {
+    if (c + 1 < state.cols) {
+      const a = px(r + "," + c), b = px(r + "," + (c + 1));
+      base.appendChild(el("line", {x1: a.x, y1: a.y, x2: b.x, y2: b.y}));
+    }
+    if (r + 1 < state.rows) {
+      const a = px(r + "," + c), b = px((r + 1) + "," + c);
+      base.appendChild(el("line", {x1: a.x, y1: a.y, x2: b.x, y2: b.y}));
+    }
+  }
+  svg.appendChild(base);
+
+  // perspectives for every demand: drawn dim, highlighted one drawn on top
+  const byDemand = {};
+  (state.perspectives || []).forEach(p => byDemand[p.demand] = p);
+
+  function drawPerspective(p, dim) {
+    const color = colorOf[p.demand] || "#1f77b4";
+    const g = el("g", {opacity: dim ? .12 : 1});
+    const maxFlow = Math.max(...p.edges.map(e => e.flow), 1);
+    p.edges.forEach(e => {
+      const a = px(e.a), b = px(e.b), t = e.flow / maxFlow;
+      g.appendChild(el("line", {
+        x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: color,
+        "stroke-width": S * (1 + 4.5 * t), "stroke-linecap": "round",
+      }));
+    });
+    svg.appendChild(g);
+  }
+
+  const order = [];
+  (state.perspectives || []).forEach(p => order.push(p));
+  const hovered = state.hover && byDemand[state.hover];
+  order.forEach(p => { if (p !== hovered) drawPerspective(p, true); });
+  if (hovered) drawPerspective(hovered, false);
+
+  // supply nodes
+  state.supplies.forEach(s => {
+    const {x, y} = px(s);
+    svg.appendChild(el("path", {
+      d: starPath(x, y, starR, starR2), fill: "gold", stroke: "#333",
+      "stroke-width": .8 * S, "pointer-events": "none",
+    }));
+  });
+
+  // demand nodes with hover
+  state.demands.forEach(d => {
+    const {x, y} = px(d);
+    const g = el("g", {cursor: "pointer"});
+    // invisible hit area so hover still works when cells shrink
+    g.appendChild(el("circle", {
+      cx: x, cy: y, r: Math.max(12, CELL * .6), fill: "transparent",
+    }));
+    const tri = el("path", {
+      d: `M ${x} ${y - triH} L ${x - triW} ${y + triH * .75} L ${x + triW} ${y + triH * .75} Z`,
+      fill: colorOf[d], stroke: "#333", "stroke-width": S,
+    });
+    g.appendChild(tri);
+    g.addEventListener("mouseenter", () => { state.hover = d; draw(); });
+    g.addEventListener("mouseleave", () => { state.hover = null; draw(); });
+    svg.appendChild(g);
+  });
+}
+
+function starPath(cx, cy, R, r) {
+  let d = "";
+  for (let i = 0; i < 10; i++) {
+    const rad = i % 2 === 0 ? R : r, a = -Math.PI / 2 + i * Math.PI / 5;
+    d += (i ? "L" : "M") + (cx + rad * Math.cos(a)).toFixed(1) + " "
+         + (cy + rad * Math.sin(a)).toFixed(1) + " ";
+  }
+  return d + "Z";
+}
+
+/* ---------- actions ---------- */
+
+async function sampleNodes() {
+  setStatus("sampling…");
+  try {
+    const data = await post("/api/sample", {
+      rows: state.rows, cols: state.cols,
+      n_supplies: +$("n-supply").value, n_demands: +$("n-demand").value,
+      seed: Math.floor(Math.random() * 1e9),
+    });
+    state.supplies = data.supplies;
+    state.demands = data.demands;
+    state.perspectives = null;
+    $("btn-persp").disabled = false;
+    setStatus(`sampled ${data.supplies.length} supplies, ` +
+              `${data.demands.length} demands`);
+    draw();
+  } catch (e) { setStatus(e.message, true); }
+}
+
+async function genPerspectives() {
+  if (!state.supplies.length) return;
+  setStatus("computing perspectives…");
+  try {
+    const type = $("pref-type").value;
+    const data = await post("/api/perspectives", {
+      rows: state.rows, cols: state.cols,
+      supplies: state.supplies, demands: state.demands,
+      prefType: type, prefValue: type === "rank" ? +$("k").value : +$("r").value,
+    });
+    state.perspectives = data.perspectives;
+    const total = data.perspectives.reduce((s, p) => s + p.n_edges, 0);
+    setStatus(`done — ${total} path edges; hover a demand node`);
+    draw();
+  } catch (e) { setStatus(e.message, true); }
+}
+
+/* ---------- wiring ---------- */
+
+function readGrid() {
+  state.rows = +$("rows").value; state.cols = +$("cols").value;
+  $("rows-val").textContent = state.rows;
+  $("cols-val").textContent = state.cols;
+  // grid change invalidates sampled node positions
+  state.supplies = []; state.demands = []; state.perspectives = null;
+  $("btn-persp").disabled = true;
+  draw();
+}
+
+$("rows").addEventListener("input", readGrid);
+$("cols").addEventListener("input", readGrid);
+$("btn-sample").addEventListener("click", sampleNodes);
+$("btn-persp").addEventListener("click", genPerspectives);
+$("pref-type").addEventListener("change", () => {
+  const rank = $("pref-type").value === "rank";
+  $("rank-controls").style.display = rank ? "" : "none";
+  $("dist-controls").style.display = rank ? "none" : "";
+});
+$("k").addEventListener("input", () => $("k-val").textContent = $("k").value);
+$("r").addEventListener("input", () => $("r-val").textContent = $("r").value);
+
+readGrid();
+</script>
+</body>
+</html>
